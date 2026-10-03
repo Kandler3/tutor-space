@@ -24,7 +24,12 @@ set -a
 . ./.env
 set +a
 
-docker compose up -d --wait db
+task_db_image=$(docker compose config --images db)
+if docker image inspect "$task_db_image" >/dev/null 2>&1; then
+    docker compose up -d --wait --pull never db
+else
+    docker compose up -d --wait --pull missing db
+fi
 go run ./cmd/migrate
 printf 'Starting the EK1 API; use Ctrl+C to stop the server.\n'
 exec go run ./cmd/server

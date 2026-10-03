@@ -54,7 +54,7 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := app.Handler()
-	request := func(method, path, body, token string, expected int) *httptest.ResponseRecorder {
+	requestOn := func(apiHandler http.Handler, method, path, body, token string, expected int) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -62,7 +62,7 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+token)
 		}
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, r)
+		apiHandler.ServeHTTP(w, r)
 		if w.Code != expected {
 			t.Fatalf("%s %s: status=%d, expected=%d", method, path, w.Code, expected)
 		}
@@ -70,6 +70,10 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 			t.Fatal("response leaked password material")
 		}
 		return w
+	}
+	request := func(method, path, body, token string, expected int) *httptest.ResponseRecorder {
+		t.Helper()
+		return requestOn(handler, method, path, body, token, expected)
 	}
 	request(http.MethodGet, "/readyz", "", "", 200)
 	randomID, err := auth.NewUserID()
@@ -130,6 +134,16 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 	}
 	studentToken := login(student)
 	tutorToken := login(tutor)
+	secondDatabase, err := store.Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("cannot open independent API database pool")
+	}
+	defer secondDatabase.Close()
+	secondAPI, err := New(secondDatabase, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestOn(secondAPI.Handler(), http.MethodGet, "/api/me", "", tutorToken, 200)
 	request(http.MethodGet, "/api/me", "", "", 401)
 	w := request(http.MethodGet, "/api/me?user_id="+otherStudent.ID, "", studentToken, 200)
 	var me struct {
@@ -140,6 +154,7 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 	}
 	request(http.MethodPost, "/api/logout", "", tutorToken, 204)
 	request(http.MethodGet, "/api/me", "", tutorToken, 401)
+	requestOn(secondAPI.Handler(), http.MethodGet, "/api/me", "", tutorToken, 401)
 	hash := sha256.Sum256([]byte(studentToken))
 	if _, err := db.Exec(`UPDATE sessions SET expires_at=now()-interval '1 minute' WHERE token_hash=$1`, hash[:]); err != nil {
 		t.Fatal("cannot expire test session")
@@ -155,5 +170,11 @@ func TestIntegrationAuthenticationLifecycle(t *testing.T) {
 	persisted, _, err := reopened.Credentials(ctx, student.Login)
 	if err != nil || persisted.ID != student.ID {
 		t.Fatal("user profile did not persist")
+	}
+	activeToken := login(student)
+	secondDatabase.Close()
+	unavailable := requestOn(secondAPI.Handler(), http.MethodGet, "/api/me", "", activeToken, 500)
+	if strings.Contains(unavailable.Body.String(), student.ID) || strings.Contains(unavailable.Body.String(), student.Login) {
+		t.Fatal("unavailable session storage exposed a profile")
 	}
 }
