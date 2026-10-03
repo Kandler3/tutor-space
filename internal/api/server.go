@@ -1,4 +1,3 @@
-// Package api provides the minimal EK1 HTTP API. Booking and homework are planned.
 package api
 
 import (
