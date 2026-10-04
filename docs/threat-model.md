@@ -1,6 +1,6 @@
 # Модель угроз TutorSpace
 
-[Паспорт](../PROJECT.md) · [Требования](requirements.md) · [Решения](design-decisions.md) · [Проверки и вклад](../CONTRIBUTIONS.md) · [ИИ](../AI_USAGE.md)
+[Паспорт](../PROJECT.md) · [Требования](requirements.md) · [Решения](design-decisions.md)
 
 Модель описывает текущую основу и будущие модули. Сценарии ниже — возможные угрозы, а не найденные ошибки работающего приложения.
 
